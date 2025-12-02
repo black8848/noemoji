@@ -17,9 +17,14 @@ NoEmoji - 批量扫描并删除文件中的emoji表情
 import argparse
 import os
 import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable, NamedTuple
+
+# 大文件阈值：超过此大小使用流式处理
+LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
 
 # 尝试导入 emoji 库
 try:
@@ -161,8 +166,61 @@ else:
     remove_emojis = remove_emojis_regex
 
 
+def scan_file_streaming(file_path: Path) -> list[str]:
+    """流式扫描大文件中的emoji"""
+    emojis: list[str] = []
+    try:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                emojis.extend(find_emojis(line))
+    except (PermissionError, OSError):
+        pass
+    return emojis
+
+
+def process_file_streaming(file_path: Path) -> bool:
+    """流式处理大文件，删除emoji，返回是否成功"""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=file_path.suffix
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    tmp.write(remove_emojis(line))
+
+        # 替换原文件
+        shutil.move(str(tmp_path), str(file_path))
+        return True
+    except (PermissionError, OSError):
+        # 清理临时文件
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return False
+
+
+def is_large_file(file_path: Path) -> bool:
+    """判断是否是大文件"""
+    try:
+        return file_path.stat().st_size > LARGE_FILE_THRESHOLD
+    except OSError:
+        return False
+
+
 def process_file(file_path: Path, dry_run: bool = False) -> tuple[FileResult | None, bool]:
     """处理单个文件，返回 (处理结果, 是否因无法读取而跳过)"""
+    # 大文件使用流式扫描
+    if is_large_file(file_path):
+        emojis = scan_file_streaming(file_path)
+        if not emojis:
+            return None, False
+        return FileResult(
+            path=str(file_path),
+            emoji_count=len(emojis),
+            emojis_found=emojis,
+        ), False
+
+    # 小文件一次性读取
     try:
         content = file_path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, PermissionError, OSError):
@@ -172,13 +230,6 @@ def process_file(file_path: Path, dry_run: bool = False) -> tuple[FileResult | N
     emojis = find_emojis(content)
     if not emojis:
         return None, False
-
-    if not dry_run:
-        cleaned = remove_emojis(content)
-        try:
-            file_path.write_text(cleaned, encoding="utf-8")
-        except (PermissionError, OSError):
-            return None, True
 
     return FileResult(
         path=str(file_path),
@@ -412,9 +463,15 @@ def main() -> int:
     for result in scan_result.files:
         file_path = Path(result.path)
         try:
-            content = file_path.read_text(encoding="utf-8")
-            cleaned = remove_emojis(content)
-            file_path.write_text(cleaned, encoding="utf-8")
+            if is_large_file(file_path):
+                # 大文件流式处理
+                if not process_file_streaming(file_path):
+                    print(f"  处理失败 {file_path}", file=sys.stderr)
+            else:
+                # 小文件一次性处理
+                content = file_path.read_text(encoding="utf-8")
+                cleaned = remove_emojis(content)
+                file_path.write_text(cleaned, encoding="utf-8")
         except (UnicodeDecodeError, PermissionError, OSError) as e:
             print(f"  处理失败 {file_path}: {e}", file=sys.stderr)
 
