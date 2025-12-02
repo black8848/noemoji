@@ -9,6 +9,7 @@ AI 生成的代码和文档经常包含大量 emoji，这个工具可以帮你�
 - 递归扫描目录
 - 精确匹配 emoji
 - 支持文件类型白名单/黑名单过滤
+- 支持 .gitignore 过滤
 - 删除前预览确认
 - 实时进度条显示
 - 统计每个文件删除的 emoji 数量
@@ -45,6 +46,9 @@ python noemoji.py ./your_project --exclude .json .yml
 # 使用多进程加速扫描（自动检测核心数）
 python noemoji.py ./your_project -w
 
+# 自动跳过 .gitignore 中的文件
+python noemoji.py ./your_project -g
+
 # 查看所有参数用法
 python noemoji.py ./your_project --help
 ```
@@ -59,6 +63,7 @@ python noemoji.py ./your_project --help
 | `--exclude` | `-x` | 黑名单，排除指定扩展名 |
 | `--yes` | `-y` | 跳过确认，直接执行删除 |
 | `--workers` | `-w` | 启用多进程并行（自动检测核心数） |
+| `--gitignore` | `-g` | 跳过被 .gitignore 忽略的文件 |
 | `--help` | `-h` | 显示帮助信息 |
 
 ## 输出示例
@@ -94,7 +99,7 @@ python noemoji.py ./your_project --help
 
 - 默认会跳过二进制文件（如图片、视频等）
 - 建议先使用 `--dry-run` 预览，确认无误后再执行
-- 处理 `node_modules` 等第三方库目录时请谨慎，建议使用 `--exclude` 排除
+- 处理 `node_modules` 等第三方库目录时，建议使用 `-g` 自动跳过 .gitignore 中的目录
 - 安装 `emoji` 库可获得更精确的匹配：`pip install emoji`
 - 在较大项目中，推荐使用白名单一个一个类型删除，做好版本控制，避免误删实体映射的文件
 

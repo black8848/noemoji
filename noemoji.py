@@ -19,6 +19,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -30,6 +31,46 @@ LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
 
 # 默认并行工作进程数
 DEFAULT_WORKERS = multiprocessing.cpu_count()
+
+
+def is_git_repo(path: Path) -> bool:
+    """检查路径是否在 git 仓库中"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def get_git_ignored_files(target_dir: Path, files: list[Path]) -> set[Path]:
+    """批量检查文件是否被 gitignore 忽略，返回被忽略的文件集合"""
+    if not files:
+        return set()
+
+    try:
+        # 使用 git check-ignore 批量检查
+        # 将文件路径通过 stdin 传入，避免命令行过长
+        file_paths = [str(f) for f in files]
+        result = subprocess.run(
+            ["git", "check-ignore", "--stdin"],
+            cwd=target_dir,
+            input="\n".join(file_paths),
+            capture_output=True,
+            text=True,
+        )
+        # 返回被忽略的文件路径
+        ignored = set()
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                ignored.add(Path(line))
+        return ignored
+    except (FileNotFoundError, OSError):
+        return set()
 
 # 尝试导入 emoji 库
 try:
@@ -291,6 +332,7 @@ def scan_directory(
     excludes: list[str] | None = None,
     dry_run: bool = False,
     workers: int = 1,
+    use_gitignore: bool = False,
 ) -> ScanResult:
     """递归扫描目录并处理文件"""
     # 第一步：收集所有需要处理的文件，同时记录跳过的扩展名
@@ -317,6 +359,12 @@ def scan_directory(
                     continue
 
             files_to_process.append(file_path)
+
+    # 过滤 gitignore 忽略的文件
+    if use_gitignore and files_to_process:
+        ignored = get_git_ignored_files(target_dir, files_to_process)
+        if ignored:
+            files_to_process = [f for f in files_to_process if f not in ignored]
 
     # 第二步：处理文件
     results: list[FileResult] = []
@@ -434,6 +482,11 @@ def main() -> int:
         default=1,
         help=f"启用多进程并行处理 (不指定数值则自动使用 {DEFAULT_WORKERS} 核心)",
     )
+    parser.add_argument(
+        "--gitignore", "-g",
+        action="store_true",
+        help="跳过被 .gitignore 忽略的文件",
+    )
 
     args = parser.parse_args()
 
@@ -463,6 +516,15 @@ def main() -> int:
     if excludes:
         print(f"排除类型: {', '.join(excludes)}")
 
+    # 检查 gitignore 选项
+    use_gitignore = args.gitignore
+    if use_gitignore:
+        if is_git_repo(target_path):
+            print("启用: .gitignore 过滤")
+        else:
+            print("警告: 当前目录不是 git 仓库，--gitignore 选项无效", file=sys.stderr)
+            use_gitignore = False
+
     # 显示使用的检测方式
     if HAS_EMOJI_LIB:
         print("检测引擎: emoji库 (精确模式)")
@@ -470,7 +532,10 @@ def main() -> int:
         print("检测引擎: 正则表达式 (安装emoji库可更精确: pip install emoji)")
 
     # 先执行预览扫描
-    scan_result = scan_directory(target_path, extensions, excludes, dry_run=True, workers=args.workers)
+    scan_result = scan_directory(
+        target_path, extensions, excludes,
+        dry_run=True, workers=args.workers, use_gitignore=use_gitignore
+    )
     print_report(scan_result.files, scan_result.skipped_extensions, dry_run=True)
 
     # 如果是预览模式或没有找到emoji，直接返回
