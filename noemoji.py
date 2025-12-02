@@ -168,30 +168,30 @@ else:
     remove_emojis = remove_emojis_regex
 
 
-def process_file(file_path: Path, dry_run: bool = False) -> FileResult | None:
-    """处理单个文件，返回处理结果"""
+def process_file(file_path: Path, dry_run: bool = False) -> tuple[FileResult | None, bool]:
+    """处理单个文件，返回 (处理结果, 是否因无法读取而跳过)"""
     try:
         content = file_path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, PermissionError, OSError):
-        # 静默跳过无法读取的文件
-        return None
+        # 无法读取的文件（二进制文件等）
+        return None, True
 
     emojis = find_emojis(content)
     if not emojis:
-        return None
+        return None, False
 
     if not dry_run:
         cleaned = remove_emojis(content)
         try:
             file_path.write_text(cleaned, encoding="utf-8")
         except (PermissionError, OSError):
-            return None
+            return None, True
 
     return FileResult(
         path=str(file_path),
         emoji_count=len(emojis),
         emojis_found=emojis,
-    )
+    ), False
 
 
 class ProgressBar:
@@ -279,9 +279,14 @@ def scan_directory(
 
     for file_path in files_to_process:
         progress.update(filename=file_path.name)
-        result = process_file(file_path, dry_run)
+        result, was_skipped = process_file(file_path, dry_run)
         if result:
             results.append(result)
+        elif was_skipped:
+            # 记录因无法读取而跳过的文件类型
+            suffix = file_path.suffix.lower()
+            if suffix:
+                skipped_extensions.add(suffix)
 
     progress.finish()
     return ScanResult(files=results, skipped_extensions=skipped_extensions)
