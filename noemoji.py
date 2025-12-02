@@ -195,6 +195,42 @@ def process_file(file_path: Path, dry_run: bool = False) -> FileResult | None:
     )
 
 
+class ProgressBar:
+    """简单的进度条实现"""
+
+    def __init__(self, total: int, width: int = 40, desc: str = ""):
+        self.total = total
+        self.width = width
+        self.desc = desc
+        self.current = 0
+        self.last_percent = -1
+
+    def update(self, n: int = 1, filename: str = "") -> None:
+        """更新进度"""
+        self.current += n
+        percent = int(self.current * 100 / self.total) if self.total > 0 else 100
+
+        # 只在百分比变化时更新显示，减少闪烁
+        if percent != self.last_percent or filename:
+            self.last_percent = percent
+            filled = int(self.width * self.current / self.total) if self.total > 0 else self.width
+            bar = "█" * filled + "░" * (self.width - filled)
+
+            # 截断过长的文件名
+            display_name = filename
+            if len(display_name) > 30:
+                display_name = "..." + filename[-27:]
+
+            status = f"\r{self.desc} |{bar}| {percent:3d}% ({self.current}/{self.total}) {display_name:<30}"
+            sys.stdout.write(status)
+            sys.stdout.flush()
+
+    def finish(self) -> None:
+        """完成进度条"""
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+
 def scan_directory(
     target_dir: Path,
     extensions: list[str] | None = None,
@@ -202,7 +238,8 @@ def scan_directory(
     dry_run: bool = False,
 ) -> list[FileResult]:
     """递归扫描目录并处理文件"""
-    results: list[FileResult] = []
+    # 第一步：收集所有需要处理的文件
+    files_to_process: list[Path] = []
 
     for root, _, files in os.walk(target_dir):
         for filename in files:
@@ -218,10 +255,24 @@ def scan_directory(
                 if file_path.suffix.lower() in excludes:
                     continue
 
-            result = process_file(file_path, dry_run)
-            if result:
-                results.append(result)
+            files_to_process.append(file_path)
 
+    # 第二步：带进度条处理文件
+    results: list[FileResult] = []
+    total = len(files_to_process)
+
+    if total == 0:
+        return results
+
+    progress = ProgressBar(total, desc="扫描中")
+
+    for file_path in files_to_process:
+        progress.update(filename=file_path.name)
+        result = process_file(file_path, dry_run)
+        if result:
+            results.append(result)
+
+    progress.finish()
     return results
 
 
