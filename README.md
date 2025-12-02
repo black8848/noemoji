@@ -12,6 +12,8 @@ AI 生成的代码和文档经常包含大量 emoji，这个工具可以帮你�
 - 删除前预览确认
 - 实时进度条显示
 - 统计每个文件删除的 emoji 数量
+- 大文件流式处理（>10MB）
+- 多进程并行扫描
 - 零依赖，开箱即用（可选安装 emoji 库提高精度）
 
 ## 安装
@@ -40,6 +42,9 @@ python noemoji.py ./your_project --ext .md .txt .py
 # 排除指定类型文件
 python noemoji.py ./your_project --exclude .json .yml
 
+# 使用多进程加速扫描（自动检测核心数）
+python noemoji.py ./your_project -w
+
 # 查看所有参数用法
 python noemoji.py ./your_project --help
 ```
@@ -53,6 +58,7 @@ python noemoji.py ./your_project --help
 | `--ext` | `-e` | 白名单，只处理指定扩展名 |
 | `--exclude` | `-x` | 黑名单，排除指定扩展名 |
 | `--yes` | `-y` | 跳过确认，直接执行删除 |
+| `--workers` | `-w` | 启用多进程并行（自动检测核心数） |
 | `--help` | `-h` | 显示帮助信息 |
 
 ## 输出示例

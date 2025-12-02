@@ -15,16 +15,21 @@ NoEmoji - 批量扫描并删除文件中的emoji表情
 """
 
 import argparse
+import multiprocessing
 import os
 import re
 import shutil
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, NamedTuple
 
 # 大文件阈值：超过此大小使用流式处理
 LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
+
+# 默认并行工作进程数
+DEFAULT_WORKERS = multiprocessing.cpu_count()
 
 # 尝试导入 emoji 库
 try:
@@ -285,6 +290,7 @@ def scan_directory(
     extensions: list[str] | None = None,
     excludes: list[str] | None = None,
     dry_run: bool = False,
+    workers: int = 1,
 ) -> ScanResult:
     """递归扫描目录并处理文件"""
     # 第一步：收集所有需要处理的文件，同时记录跳过的扩展名
@@ -312,7 +318,7 @@ def scan_directory(
 
             files_to_process.append(file_path)
 
-    # 第二步：带进度条处理文件
+    # 第二步：处理文件
     results: list[FileResult] = []
     total = len(files_to_process)
 
@@ -321,16 +327,34 @@ def scan_directory(
 
     progress = ProgressBar(total, desc="扫描中")
 
-    for file_path in files_to_process:
-        progress.update(filename=file_path.name)
-        result, was_skipped = process_file(file_path, dry_run)
-        if result:
-            results.append(result)
-        elif was_skipped:
-            # 记录因无法读取而跳过的文件类型
-            suffix = file_path.suffix.lower()
-            if suffix:
-                skipped_extensions.add(suffix)
+    if workers > 1 and total > 1:
+        # 多进程并行处理
+        with ProcessPoolExecutor(max_workers=min(workers, total)) as executor:
+            futures = {executor.submit(process_file, fp, dry_run): fp for fp in files_to_process}
+            for future in as_completed(futures):
+                file_path = futures[future]
+                progress.update(filename=file_path.name)
+                try:
+                    result, was_skipped = future.result()
+                    if result:
+                        results.append(result)
+                    elif was_skipped:
+                        suffix = file_path.suffix.lower()
+                        if suffix:
+                            skipped_extensions.add(suffix)
+                except Exception:
+                    pass
+    else:
+        # 单进程处理
+        for file_path in files_to_process:
+            progress.update(filename=file_path.name)
+            result, was_skipped = process_file(file_path, dry_run)
+            if result:
+                results.append(result)
+            elif was_skipped:
+                suffix = file_path.suffix.lower()
+                if suffix:
+                    skipped_extensions.add(suffix)
 
     progress.finish()
     return ScanResult(files=results, skipped_extensions=skipped_extensions)
@@ -402,6 +426,14 @@ def main() -> int:
         action="store_true",
         help="跳过确认，直接执行删除",
     )
+    parser.add_argument(
+        "--workers", "-w",
+        type=int,
+        nargs="?",
+        const=DEFAULT_WORKERS,
+        default=1,
+        help=f"启用多进程并行处理 (不指定数值则自动使用 {DEFAULT_WORKERS} 核心)",
+    )
 
     args = parser.parse_args()
 
@@ -438,7 +470,7 @@ def main() -> int:
         print("检测引擎: 正则表达式 (安装emoji库可更精确: pip install emoji)")
 
     # 先执行预览扫描
-    scan_result = scan_directory(target_path, extensions, excludes, dry_run=True)
+    scan_result = scan_directory(target_path, extensions, excludes, dry_run=True, workers=args.workers)
     print_report(scan_result.files, scan_result.skipped_extensions, dry_run=True)
 
     # 如果是预览模式或没有找到emoji，直接返回
