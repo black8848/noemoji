@@ -198,6 +198,7 @@ def process_file(file_path: Path, dry_run: bool = False) -> FileResult | None:
 def scan_directory(
     target_dir: Path,
     extensions: list[str] | None = None,
+    excludes: list[str] | None = None,
     dry_run: bool = False,
 ) -> list[FileResult]:
     """递归扫描目录并处理文件"""
@@ -207,9 +208,14 @@ def scan_directory(
         for filename in files:
             file_path = Path(root) / filename
 
-            # 过滤文件扩展名
+            # 过滤文件扩展名 (白名单)
             if extensions:
                 if file_path.suffix.lower() not in extensions:
+                    continue
+
+            # 排除文件扩展名 (黑名单)
+            if excludes:
+                if file_path.suffix.lower() in excludes:
                     continue
 
             result = process_file(file_path, dry_run)
@@ -251,6 +257,8 @@ def main() -> int:
   python noemoji.py ./docs              # 扫描docs文件夹
   python noemoji.py ./src --dry-run     # 预览模式，不实际删除
   python noemoji.py . --ext .md .txt    # 只处理.md和.txt文件
+  python noemoji.py . --exclude .md     # 排除.md文件
+  python noemoji.py . -x .md .json      # 排除多种文件类型
 
 提示:
   安装 emoji 库可获得更精确的匹配: pip install emoji
@@ -267,6 +275,12 @@ def main() -> int:
         nargs="+",
         type=str,
         help="只处理指定扩展名的文件 (例如: --ext .md .txt)",
+    )
+    parser.add_argument(
+        "--exclude", "-x",
+        nargs="+",
+        type=str,
+        help="排除指定扩展名的文件 (例如: --exclude .md .json)",
     )
 
     args = parser.parse_args()
@@ -285,11 +299,17 @@ def main() -> int:
     if args.ext:
         extensions = [ext if ext.startswith(".") else f".{ext}" for ext in args.ext]
 
+    excludes = None
+    if args.exclude:
+        excludes = [ext if ext.startswith(".") else f".{ext}" for ext in args.exclude]
+
     print(f"扫描目录: {target_path}")
     if args.dry_run:
         print("模式: 预览 (不修改文件)")
     if extensions:
-        print(f"文件类型: {', '.join(extensions)}")
+        print(f"包含类型: {', '.join(extensions)}")
+    if excludes:
+        print(f"排除类型: {', '.join(excludes)}")
 
     # 显示使用的检测方式
     if HAS_EMOJI_LIB:
@@ -297,7 +317,7 @@ def main() -> int:
     else:
         print("检测引擎: 正则表达式 (安装emoji库可更精确: pip install emoji)")
 
-    results = scan_directory(target_path, extensions, args.dry_run)
+    results = scan_directory(target_path, extensions, excludes, args.dry_run)
     print_report(results, args.dry_run)
 
     return 0
