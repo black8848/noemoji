@@ -32,6 +32,28 @@ LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
 # 默认并行工作进程数
 DEFAULT_WORKERS = multiprocessing.cpu_count()
 
+# 自动跳过的二进制/数据文件扩展名
+BINARY_EXTENSIONS = {
+    # 图片
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp", ".svg", ".tiff", ".psd",
+    # 音视频
+    ".mp3", ".mp4", ".wav", ".flac", ".avi", ".mkv", ".mov", ".wmv", ".ogg", ".m4a",
+    # 压缩包
+    ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz",
+    # 数据库
+    ".db", ".sqlite", ".sqlite3", ".mdb",
+    # 二进制数据
+    ".bin", ".dat", ".pkl", ".pickle", ".npy", ".npz",
+    # 编译产物
+    ".pyc", ".pyo", ".o", ".so", ".dll", ".exe", ".class", ".jar",
+    # 文档
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    # 字体
+    ".ttf", ".otf", ".woff", ".woff2", ".eot",
+    # 其他
+    ".lock", ".DS_Store",
+}
+
 
 def is_git_repo(path: Path) -> bool:
     """检查路径是否在 git 仓库中"""
@@ -347,6 +369,12 @@ def scan_directory(
         for filename in files:
             file_path = Path(root) / filename
             suffix = file_path.suffix.lower()
+
+            # 自动跳过二进制文件
+            if suffix in BINARY_EXTENSIONS:
+                if suffix:
+                    skipped_extensions.add(suffix)
+                continue
 
             # 过滤文件扩展名 (白名单)
             if extensions:
