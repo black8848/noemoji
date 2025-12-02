@@ -127,7 +127,7 @@ EMOJI_PATTERN = re.compile(
     "\U000026F0-\U000026F5"  # 山、滑雪等
     "\U000026F7-\U000026FA"  # 滑雪者、帐篷等
     "\U000026FD"             # 加油站
-    "]+",
+    "]",  # 不用+，每次只匹配单个emoji
     flags=re.UNICODE,
 )
 
@@ -172,8 +172,8 @@ def process_file(file_path: Path, dry_run: bool = False) -> FileResult | None:
     """处理单个文件，返回处理结果"""
     try:
         content = file_path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, PermissionError, OSError) as e:
-        print(f"  跳过 {file_path}: {e}", file=sys.stderr)
+    except (UnicodeDecodeError, PermissionError, OSError):
+        # 静默跳过无法读取的文件
         return None
 
     emojis = find_emojis(content)
@@ -184,8 +184,7 @@ def process_file(file_path: Path, dry_run: bool = False) -> FileResult | None:
         cleaned = remove_emojis(content)
         try:
             file_path.write_text(cleaned, encoding="utf-8")
-        except (PermissionError, OSError) as e:
-            print(f"  写入失败 {file_path}: {e}", file=sys.stderr)
+        except (PermissionError, OSError):
             return None
 
     return FileResult(
@@ -231,28 +230,40 @@ class ProgressBar:
         sys.stdout.flush()
 
 
+class ScanResult(NamedTuple):
+    """扫描结果"""
+    files: list[FileResult]
+    skipped_extensions: set[str]
+
+
 def scan_directory(
     target_dir: Path,
     extensions: list[str] | None = None,
     excludes: list[str] | None = None,
     dry_run: bool = False,
-) -> list[FileResult]:
+) -> ScanResult:
     """递归扫描目录并处理文件"""
-    # 第一步：收集所有需要处理的文件
+    # 第一步：收集所有需要处理的文件，同时记录跳过的扩展名
     files_to_process: list[Path] = []
+    skipped_extensions: set[str] = set()
 
     for root, _, files in os.walk(target_dir):
         for filename in files:
             file_path = Path(root) / filename
+            suffix = file_path.suffix.lower()
 
             # 过滤文件扩展名 (白名单)
             if extensions:
-                if file_path.suffix.lower() not in extensions:
+                if suffix not in extensions:
+                    if suffix:
+                        skipped_extensions.add(suffix)
                     continue
 
             # 排除文件扩展名 (黑名单)
             if excludes:
-                if file_path.suffix.lower() in excludes:
+                if suffix in excludes:
+                    if suffix:
+                        skipped_extensions.add(suffix)
                     continue
 
             files_to_process.append(file_path)
@@ -262,7 +273,7 @@ def scan_directory(
     total = len(files_to_process)
 
     if total == 0:
-        return results
+        return ScanResult(files=results, skipped_extensions=skipped_extensions)
 
     progress = ProgressBar(total, desc="扫描中")
 
@@ -273,13 +284,15 @@ def scan_directory(
             results.append(result)
 
     progress.finish()
-    return results
+    return ScanResult(files=results, skipped_extensions=skipped_extensions)
 
 
-def print_report(results: list[FileResult], dry_run: bool = False) -> None:
+def print_report(results: list[FileResult], skipped_extensions: set[str], dry_run: bool = False) -> None:
     """打印处理报告"""
     if not results:
         print("\n没有发现包含emoji的文件")
+        if skipped_extensions:
+            print(f"已跳过文件类型: {', '.join(sorted(skipped_extensions))}")
         return
 
     mode = "[预览模式]" if dry_run else "[已清理]"
@@ -297,6 +310,8 @@ def print_report(results: list[FileResult], dry_run: bool = False) -> None:
 
     print("=" * 60)
     print(f"共处理 {len(results)} 个文件，{'发现' if dry_run else '删除'} {total_emojis} 个emoji")
+    if skipped_extensions:
+        print(f"已跳过文件类型: {', '.join(sorted(skipped_extensions))}")
 
 
 def main() -> int:
@@ -368,8 +383,8 @@ def main() -> int:
     else:
         print("检测引擎: 正则表达式 (安装emoji库可更精确: pip install emoji)")
 
-    results = scan_directory(target_path, extensions, excludes, args.dry_run)
-    print_report(results, args.dry_run)
+    scan_result = scan_directory(target_path, extensions, excludes, args.dry_run)
+    print_report(scan_result.files, scan_result.skipped_extensions, args.dry_run)
 
     return 0
 
