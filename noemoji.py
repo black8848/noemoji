@@ -339,7 +339,11 @@ def scan_directory(
     files_to_process: list[Path] = []
     skipped_extensions: set[str] = set()
 
-    for root, _, files in os.walk(target_dir):
+    for root, dirs, files in os.walk(target_dir):
+        # 使用 gitignore 时自动跳过 .git 目录
+        if use_gitignore and ".git" in dirs:
+            dirs.remove(".git")
+
         for filename in files:
             file_path = Path(root) / filename
             suffix = file_path.suffix.lower()

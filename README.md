@@ -99,7 +99,7 @@ python noemoji.py ./your_project --help
 
 - 默认会跳过二进制文件（如图片、视频等）
 - 建议先使用 `--dry-run` 预览，确认无误后再执行
-- 处理 `node_modules` 等第三方库目录时，建议使用 `-g` 自动跳过 .gitignore 中的目录
+- 处理 `node_modules` 等第三方库目录时，建议使用 `-g` 参数，这会让程序自动忽略 .gitignore 以及 .git/ 下的文件
 - 安装 `emoji` 库可获得更精确的匹配：`pip install emoji`
 - 在较大项目中，推荐使用白名单一个一个类型删除，做好版本控制，避免误删实体映射的文件
 
