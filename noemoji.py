@@ -346,6 +346,11 @@ def main() -> int:
         type=str,
         help="排除指定扩展名的文件 (例如: --exclude .md .json)",
     )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="跳过确认，直接执行删除",
+    )
 
     args = parser.parse_args()
 
@@ -381,8 +386,40 @@ def main() -> int:
     else:
         print("检测引擎: 正则表达式 (安装emoji库可更精确: pip install emoji)")
 
-    scan_result = scan_directory(target_path, extensions, excludes, args.dry_run)
-    print_report(scan_result.files, scan_result.skipped_extensions, args.dry_run)
+    # 先执行预览扫描
+    scan_result = scan_directory(target_path, extensions, excludes, dry_run=True)
+    print_report(scan_result.files, scan_result.skipped_extensions, dry_run=True)
+
+    # 如果是预览模式或没有找到emoji，直接返回
+    if args.dry_run or not scan_result.files:
+        return 0
+
+    # 询问用户确认
+    if not args.yes:
+        print()
+        try:
+            confirm = input("确认删除以上emoji? (yes/no): ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\n已取消")
+            return 0
+
+        if confirm not in ("yes", "y"):
+            print("已取消")
+            return 0
+
+    # 执行实际删除
+    print("\n执行删除...")
+    for result in scan_result.files:
+        file_path = Path(result.path)
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            cleaned = remove_emojis(content)
+            file_path.write_text(cleaned, encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError, OSError) as e:
+            print(f"  处理失败 {file_path}: {e}", file=sys.stderr)
+
+    total_emojis = sum(r.emoji_count for r in scan_result.files)
+    print(f"\n完成! 共清理 {len(scan_result.files)} 个文件，删除 {total_emojis} 个emoji")
 
     return 0
 
