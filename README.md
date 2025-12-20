@@ -1,3 +1,5 @@
+**中文** | [English](README_EN.md)
+
 # NoEmoji
 
 批量扫描并删除文件中的 emoji 表情。
